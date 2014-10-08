@@ -10,6 +10,9 @@ import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.CameraInputController;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
+import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.physics.bullet.Bullet;
+import com.badlogic.gdx.physics.bullet.collision.*;
 import com.badlogic.gdx.utils.Array;
 import com.warrensofthought.subs.Subs;
 
@@ -27,7 +30,16 @@ public class GameLoop extends SubsScreen {
     Environment environment;
     ModelInstance ball;
     ModelInstance ground;
+    boolean collision = false;
 
+    btCollisionShape groundShape;
+    btCollisionShape ballShape;
+
+    btCollisionObject groundObject;
+    btCollisionObject ballObject;
+
+    btCollisionConfiguration collisionConfig;
+    btDispatcher dispatcher;
 
     public GameLoop(Subs subs) {
         super(subs);
@@ -64,6 +76,20 @@ public class GameLoop extends SubsScreen {
         instances = new Array<ModelInstance>();
         instances.add(ground);
         instances.add(ball);
+
+        Bullet.init();
+        groundShape = new btBoxShape(new Vector3(2.5f, 0.5f, 2.5f));
+        ballShape = new btSphereShape(0.5f);
+        groundObject = new btCollisionObject();
+        groundObject.setCollisionShape(groundShape);
+        groundObject.setWorldTransform(ground.transform);
+
+        ballObject = new btCollisionObject();
+        ballObject.setCollisionShape(ballShape);
+        ballObject.setWorldTransform(ball.transform);
+
+        collisionConfig = new btDefaultCollisionConfiguration();
+        dispatcher = new btCollisionDispatcher(collisionConfig);
     }
 
     @Override
@@ -78,9 +104,37 @@ public class GameLoop extends SubsScreen {
         Gdx.gl.glClearColor(0.3f, 0.3f, 0.3f, 1.f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 
+        if (!collision) {
+            ball.transform.translate(0f, -delta, 0f);
+            ballObject.setWorldTransform(ball.transform);
+            collision = checkCollision(ballObject, groundObject);
+        }
+
         modelBatch.begin(camera);
         modelBatch.render(instances, environment);
         modelBatch.end();
+    }
+
+    boolean checkCollision(btCollisionObject obj0, btCollisionObject obj1) {
+        CollisionObjectWrapper co0 = new CollisionObjectWrapper(obj0);
+        CollisionObjectWrapper co1 = new CollisionObjectWrapper(obj1);
+
+        btCollisionAlgorithm algorithm = dispatcher.findAlgorithm(co0.wrapper, co1.wrapper);
+
+        btDispatcherInfo info = new btDispatcherInfo();
+        btManifoldResult result = new btManifoldResult(co0.wrapper, co1.wrapper);
+
+        algorithm.processCollision(co0.wrapper, co1.wrapper, info, result);
+
+        boolean r = result.getPersistentManifold().getNumContacts() > 0;
+
+        dispatcher.freeCollisionAlgorithm(algorithm.getCPointer());
+        result.dispose();
+        info.dispose();
+        co1.dispose();
+        co0.dispose();
+
+        return r;
     }
 
     @Override
@@ -92,5 +146,14 @@ public class GameLoop extends SubsScreen {
     public void dispose() {
         modelBatch.dispose();
         model.dispose();
+
+        groundObject.dispose();
+        groundShape.dispose();
+
+        ballObject.dispose();
+        ballShape.dispose();
+
+        collisionConfig.dispose();
+        dispatcher.dispose();
     }
 }

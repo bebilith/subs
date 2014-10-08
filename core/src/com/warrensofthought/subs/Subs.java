@@ -16,8 +16,9 @@ public class Subs extends Game {
     @Override
     public void render() {
         SubsScreen currentScreen = getScreen();
+        final float delta = Math.min(1f / 30f, Gdx.graphics.getDeltaTime());
         // update the screen
-        currentScreen.render(Gdx.graphics.getDeltaTime());
+        currentScreen.render(delta);
 
         // When the screen is done we change to the
         // next screen. Ideally the screen transitions are handled
