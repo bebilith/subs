@@ -2,6 +2,7 @@ package com.warrensofthought.subs;
 
 import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Gdx;
+import com.warrensofthought.subs.screens.GameLoop;
 import com.warrensofthought.subs.screens.MainMenu;
 import com.warrensofthought.subs.screens.SubsScreen;
 
@@ -22,6 +23,9 @@ public class Subs extends Game {
         // next screen. Ideally the screen transitions are handled
         // in the screen itself or in a proper state machine.
         if (currentScreen.isDone()) {
+            if (currentScreen instanceof MainMenu) {
+                setScreen(new GameLoop(this));
+            }
             // dispose the resources of the current screen
             currentScreen.dispose();
         }

@@ -24,7 +24,9 @@ public class MainMenu extends SubsScreen {
 
     @Override
     public void update(float delta) {
-
+        if (Gdx.input.justTouched()) {
+            isDone = true;
+        }
     }
 
     @Override
@@ -39,5 +41,11 @@ public class MainMenu extends SubsScreen {
     @Override
     public boolean isDone() {
         return isDone;
+    }
+
+    @Override
+    public void dispose() {
+        batch.dispose();
+        img.dispose();
     }
 }
