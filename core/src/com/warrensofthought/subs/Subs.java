@@ -1,27 +1,39 @@
 package com.warrensofthought.subs;
 
-import com.badlogic.gdx.ApplicationAdapter;
+import com.badlogic.gdx.Game;
 import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.graphics.GL20;
-import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.warrensofthought.subs.screens.MainMenu;
+import com.warrensofthought.subs.screens.SubsScreen;
 
-public class Subs extends ApplicationAdapter {
-    SpriteBatch batch;
-    Texture img;
+public class Subs extends Game {
 
     @Override
     public void create() {
-        batch = new SpriteBatch();
-        img = new Texture("badlogic.jpg");
+        setScreen(new MainMenu(this));
     }
 
     @Override
     public void render() {
-        Gdx.gl.glClearColor(1, 0, 0, 1);
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
-        batch.begin();
-        batch.draw(img, 0, 0);
-        batch.end();
+        SubsScreen currentScreen = getScreen();
+        // update the screen
+        currentScreen.render(Gdx.graphics.getDeltaTime());
+
+        // When the screen is done we change to the
+        // next screen. Ideally the screen transitions are handled
+        // in the screen itself or in a proper state machine.
+        if (currentScreen.isDone()) {
+            // dispose the resources of the current screen
+            currentScreen.dispose();
+        }
+    }
+
+    /**
+     * For this game each of our screens is an instance of InvadersScreen.
+     *
+     * @return the currently active {@link SubsScreen}.
+     */
+    @Override
+    public SubsScreen getScreen() {
+        return (SubsScreen) super.getScreen();
     }
 }
