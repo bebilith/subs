@@ -10,11 +10,15 @@ import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.CameraInputController;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.physics.bullet.Bullet;
 import com.badlogic.gdx.physics.bullet.collision.*;
 import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.ArrayMap;
 import com.warrensofthought.subs.Subs;
+import com.warrensofthought.subs.physics.GameObject;
+import com.warrensofthought.subs.physics.util.GameObjectFactory;
 
 
 /**
@@ -26,7 +30,6 @@ public class GameLoop extends SubsScreen {
     CameraInputController camController;
     Model model;
     ModelBatch modelBatch;
-    Array<ModelInstance> instances;
     Environment environment;
     ModelInstance ball;
     ModelInstance ground;
@@ -41,8 +44,14 @@ public class GameLoop extends SubsScreen {
     btCollisionConfiguration collisionConfig;
     btDispatcher dispatcher;
 
+    Array<GameObject> instances;
+    ArrayMap<String, GameObjectFactory> constructors;
+    private float spawnTimer;
+
     public GameLoop(Subs subs) {
         super(subs);
+        Bullet.init();
+
         modelBatch = new ModelBatch();
 
         environment = new Environment();
@@ -60,41 +69,54 @@ public class GameLoop extends SubsScreen {
         ModelBuilder mb = new ModelBuilder();
         mb.begin();
         mb.node().id = "ground";
-        mb.part("box", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position |
-                        VertexAttributes.Usage.Normal,
-                new Material(ColorAttribute.createDiffuse(Color.RED))
-        )
+        mb.part("ground", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, new Material(ColorAttribute.createDiffuse(Color.RED)))
                 .box(5f, 1f, 5f);
-        mb.node().id = "ball";
+        mb.node().id = "sphere";
         mb.part("sphere", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, new Material(ColorAttribute.createDiffuse(Color.GREEN)))
                 .sphere(1f, 1f, 1f, 10, 10);
+        mb.node().id = "box";
+        mb.part("box", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, new Material(ColorAttribute.createDiffuse(Color.BLUE)))
+                .box(1f, 1f, 1f);
+        mb.node().id = "cone";
+        mb.part("cone", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, new Material(ColorAttribute.createDiffuse(Color.YELLOW)))
+                .cone(1f, 2f, 1f, 10);
+        mb.node().id = "capsule";
+        mb.part("capsule", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, new Material(ColorAttribute.createDiffuse(Color.CYAN)))
+                .capsule(0.5f, 2f, 10);
+        mb.node().id = "cylinder";
+        mb.part("cylinder", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, new Material(ColorAttribute.createDiffuse(Color.MAGENTA)))
+                .cylinder(1f, 2f, 1f, 10);
         model = mb.end();
 
-        ground = new ModelInstance(model, "ground");
-        ball = new ModelInstance(model, "ball");
-        ball.transform.setToTranslation(0, 9f, 0);
-        instances = new Array<ModelInstance>();
-        instances.add(ground);
-        instances.add(ball);
+        constructors = new ArrayMap<String, GameObjectFactory>(String.class, GameObjectFactory.class);
+        constructors.put("ground", new GameObjectFactory(model, "ground", new btBoxShape(new Vector3(2.5f, 0.5f, 2.5f))));
+        constructors.put("sphere", new GameObjectFactory(model, "sphere", new btSphereShape(0.5f)));
+        constructors.put("box", new GameObjectFactory(model, "box", new btBoxShape(new Vector3(0.5f, 0.5f, 0.5f))));
+        constructors.put("cone", new GameObjectFactory(model, "cone", new btConeShape(0.5f, 2f)));
+        constructors.put("capsule", new GameObjectFactory(model, "capsule", new btCapsuleShape(.5f, 1f)));
+        constructors.put("cylinder", new GameObjectFactory(model, "cylinder", new btCylinderShape(new Vector3(.5f, 1f, .5f))));
 
-        Bullet.init();
-        groundShape = new btBoxShape(new Vector3(2.5f, 0.5f, 2.5f));
-        ballShape = new btSphereShape(0.5f);
-        groundObject = new btCollisionObject();
-        groundObject.setCollisionShape(groundShape);
-        groundObject.setWorldTransform(ground.transform);
-
-        ballObject = new btCollisionObject();
-        ballObject.setCollisionShape(ballShape);
-        ballObject.setWorldTransform(ball.transform);
+        instances = new Array<GameObject>();
+        instances.add(constructors.get("ground").construct());
 
         collisionConfig = new btDefaultCollisionConfiguration();
         dispatcher = new btCollisionDispatcher(collisionConfig);
+
+
     }
 
     @Override
     public void update(float delta) {
 
+    }
+
+    public void spawn() {
+        GameObject obj = constructors.values[1 + MathUtils.random(constructors.size - 2)].construct();
+        obj.moving = true;
+        obj.transform.setFromEulerAngles(MathUtils.random(360f), MathUtils.random(360f), MathUtils.random(360f));
+        obj.transform.trn(MathUtils.random(-2.5f, 2.5f), 9f, MathUtils.random(-2.5f, 2.5f));
+        obj.body.setWorldTransform(obj.transform);
+        instances.add(obj);
     }
 
     @Override
@@ -104,10 +126,18 @@ public class GameLoop extends SubsScreen {
         Gdx.gl.glClearColor(0.3f, 0.3f, 0.3f, 1.f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 
-        if (!collision) {
-            ball.transform.translate(0f, -delta, 0f);
-            ballObject.setWorldTransform(ball.transform);
-            collision = checkCollision(ballObject, groundObject);
+        for (GameObject obj : instances) {
+            if (obj.moving) {
+                obj.transform.trn(0f, -delta, 0f);
+                obj.body.setWorldTransform(obj.transform);
+                if (checkCollision(obj.body, instances.get(0).body))
+                    obj.moving = false;
+            }
+        }
+
+        if ((spawnTimer -= delta) < 0) {
+            spawn();
+            spawnTimer = 1.5f;
         }
 
         modelBatch.begin(camera);
@@ -147,11 +177,15 @@ public class GameLoop extends SubsScreen {
         modelBatch.dispose();
         model.dispose();
 
-        groundObject.dispose();
-        groundShape.dispose();
+        for (GameObject obj : instances) {
+            obj.dispose();
+        }
+        instances.clear();
 
-        ballObject.dispose();
-        ballShape.dispose();
+        for (GameObjectFactory factory : constructors.values()) {
+            factory.dispose();
+        }
+        constructors.clear();
 
         collisionConfig.dispose();
         dispatcher.dispose();
