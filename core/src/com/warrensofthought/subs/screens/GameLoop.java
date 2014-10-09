@@ -5,7 +5,10 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.PerspectiveCamera;
 import com.badlogic.gdx.graphics.VertexAttributes;
-import com.badlogic.gdx.graphics.g3d.*;
+import com.badlogic.gdx.graphics.g3d.Environment;
+import com.badlogic.gdx.graphics.g3d.Material;
+import com.badlogic.gdx.graphics.g3d.Model;
+import com.badlogic.gdx.graphics.g3d.ModelBatch;
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.CameraInputController;
@@ -31,21 +34,15 @@ public class GameLoop extends SubsScreen {
     Model model;
     ModelBatch modelBatch;
     Environment environment;
-    ModelInstance ball;
-    ModelInstance ground;
-    boolean collision = false;
-
-    btCollisionShape groundShape;
-    btCollisionShape ballShape;
-
-    btCollisionObject groundObject;
-    btCollisionObject ballObject;
 
     btCollisionConfiguration collisionConfig;
     btDispatcher dispatcher;
 
     Array<GameObject> instances;
     ArrayMap<String, GameObjectFactory> constructors;
+    MyContactListener contactListener;
+    btBroadphaseInterface broadphase;
+    btCollisionWorld collisionWorld;
     private float spawnTimer;
 
     public GameLoop(Subs subs) {
@@ -97,12 +94,15 @@ public class GameLoop extends SubsScreen {
         constructors.put("cylinder", new GameObjectFactory(model, "cylinder", new btCylinderShape(new Vector3(.5f, 1f, .5f))));
 
         instances = new Array<GameObject>();
-        instances.add(constructors.get("ground").construct());
+        GameObject object = constructors.get("ground").construct();
+        instances.add(object);
 
         collisionConfig = new btDefaultCollisionConfiguration();
         dispatcher = new btCollisionDispatcher(collisionConfig);
-
-
+        broadphase = new btDbvtBroadphase();
+        contactListener = new MyContactListener();
+        collisionWorld = new btCollisionWorld(dispatcher, broadphase, collisionConfig);
+        collisionWorld.addCollisionObject(object.body);
     }
 
     @Override
@@ -116,7 +116,10 @@ public class GameLoop extends SubsScreen {
         obj.transform.setFromEulerAngles(MathUtils.random(360f), MathUtils.random(360f), MathUtils.random(360f));
         obj.transform.trn(MathUtils.random(-2.5f, 2.5f), 9f, MathUtils.random(-2.5f, 2.5f));
         obj.body.setWorldTransform(obj.transform);
+        obj.body.setUserValue(instances.size);
+        obj.body.setCollisionFlags(obj.body.getCollisionFlags() | btCollisionObject.CollisionFlags.CF_CUSTOM_MATERIAL_CALLBACK);
         instances.add(obj);
+        collisionWorld.addCollisionObject(obj.body);
     }
 
     @Override
@@ -130,10 +133,9 @@ public class GameLoop extends SubsScreen {
             if (obj.moving) {
                 obj.transform.trn(0f, -delta, 0f);
                 obj.body.setWorldTransform(obj.transform);
-                if (checkCollision(obj.body, instances.get(0).body))
-                    obj.moving = false;
             }
         }
+        collisionWorld.performDiscreteCollisionDetection();
 
         if ((spawnTimer -= delta) < 0) {
             spawn();
@@ -189,5 +191,16 @@ public class GameLoop extends SubsScreen {
 
         collisionConfig.dispose();
         dispatcher.dispose();
+        collisionWorld.dispose();
+        broadphase.dispose();
+    }
+
+    class MyContactListener extends ContactListener {
+        @Override
+        public boolean onContactAdded(int userValue0, int partId0, int index0, int userValue1, int partId1, int index1) {
+            instances.get(userValue0).moving = false;
+            instances.get(userValue1).moving = false;
+            return true;
+        }
     }
 }
