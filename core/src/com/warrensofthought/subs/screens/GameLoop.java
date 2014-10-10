@@ -1,10 +1,8 @@
 package com.warrensofthought.subs.screens;
 
 import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.GL20;
-import com.badlogic.gdx.graphics.PerspectiveCamera;
-import com.badlogic.gdx.graphics.VertexAttributes;
+import com.badlogic.gdx.graphics.*;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g3d.Environment;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.Model;
@@ -17,11 +15,15 @@ import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.physics.bullet.Bullet;
 import com.badlogic.gdx.physics.bullet.collision.*;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ArrayMap;
 import com.warrensofthought.subs.Subs;
 import com.warrensofthought.subs.physics.GameObject;
 import com.warrensofthought.subs.physics.util.GameObjectFactory;
+
+import java.util.Random;
 
 
 /**
@@ -29,26 +31,40 @@ import com.warrensofthought.subs.physics.util.GameObjectFactory;
  */
 public class GameLoop extends SubsScreen {
 
+    final static short GROUND_FLAG = 1 << 8;
+    final static short OBJECT_FLAG = 1 << 9;
+    final static short ALL_FLAG = -1;
     PerspectiveCamera camera;
     CameraInputController camController;
     Model model;
     ModelBatch modelBatch;
     Environment environment;
-
     btCollisionConfiguration collisionConfig;
     btDispatcher dispatcher;
-
     Array<GameObject> instances;
     ArrayMap<String, GameObjectFactory> constructors;
     MyContactListener contactListener;
     btBroadphaseInterface broadphase;
     btCollisionWorld collisionWorld;
     private float spawnTimer;
+    private Label label;
+    private BitmapFont font;
+    private Stage stage;
+    private StringBuilder stringBuilder;
+    private int visibleCount;
+    private Vector3 position;
 
     public GameLoop(Subs subs) {
         super(subs);
         Bullet.init();
 
+        position = new Vector3();
+
+        font = new BitmapFont();
+        label = new Label("", new Label.LabelStyle(font, Color.RED));
+        stringBuilder = new StringBuilder();
+        stage = new Stage();
+        stage.addActor(label);
         modelBatch = new ModelBatch();
 
         environment = new Environment();
@@ -61,6 +77,7 @@ public class GameLoop extends SubsScreen {
         camera.update();
 
         camController = new CameraInputController(camera);
+        constructors = new ArrayMap<String, GameObjectFactory>(String.class, GameObjectFactory.class);
         Gdx.input.setInputProcessor(camController);
 
         ModelBuilder mb = new ModelBuilder();
@@ -85,25 +102,58 @@ public class GameLoop extends SubsScreen {
                 .cylinder(1f, 2f, 1f, 10);
         model = mb.end();
 
-        constructors = new ArrayMap<String, GameObjectFactory>(String.class, GameObjectFactory.class);
         constructors.put("ground", new GameObjectFactory(model, "ground", new btBoxShape(new Vector3(2.5f, 0.5f, 2.5f))));
         constructors.put("sphere", new GameObjectFactory(model, "sphere", new btSphereShape(0.5f)));
         constructors.put("box", new GameObjectFactory(model, "box", new btBoxShape(new Vector3(0.5f, 0.5f, 0.5f))));
         constructors.put("cone", new GameObjectFactory(model, "cone", new btConeShape(0.5f, 2f)));
         constructors.put("capsule", new GameObjectFactory(model, "capsule", new btCapsuleShape(.5f, 1f)));
         constructors.put("cylinder", new GameObjectFactory(model, "cylinder", new btCylinderShape(new Vector3(.5f, 1f, .5f))));
-
         instances = new Array<GameObject>();
         GameObject object = constructors.get("ground").construct();
-        instances.add(object);
+
+        Random rand = new Random();
+        int[][] heightmap = new int[100][100];
+
+        for (int y = 0; y < 100; y++) {
+            for (int x = 0; x < 100; x++) {
+                int maxZ = rand.nextInt(10);
+                heightmap[y][x] = maxZ;
+            }
+        }
+
+
+        for (int y = 0; y < 100; y++) {
+            for (int x = 0; x < 100; x++) {
+                int maxZ = rand.nextInt(10);
+                heightmap[y][x] = maxZ;
+                for (int z = 0; z < maxZ; z++) {
+                    GameObject box = constructors.get("box").construct();
+                    box.transform.trn(x, y, z);
+                    instances.add(box);
+                    boolean invisZ = z == 0 || z < heightmap[y][x];
+
+                    boolean ym1 = y == 0 || heightmap[y - 1][x] != 0;
+                    boolean yp1 = y == 99 || heightmap[y + 1][x] != 0;
+
+                    boolean xm1 = x == 0 || heightmap[y][x - 1] != 0;
+                    boolean xp1 = x == 99 || heightmap[y][x + 1] != 0;
+
+                    if (invisZ && ym1 && yp1 && xm1 && xp1) {
+                        box.visible = false;
+                    }
+                }
+            }
+        }
+//        instances.add(object);
 
         collisionConfig = new btDefaultCollisionConfiguration();
         dispatcher = new btCollisionDispatcher(collisionConfig);
         broadphase = new btDbvtBroadphase();
         contactListener = new MyContactListener();
         collisionWorld = new btCollisionWorld(dispatcher, broadphase, collisionConfig);
-        collisionWorld.addCollisionObject(object.body);
+        collisionWorld.addCollisionObject(object.body, GROUND_FLAG, ALL_FLAG);
     }
+
 
     @Override
     public void update(float delta) {
@@ -119,7 +169,7 @@ public class GameLoop extends SubsScreen {
         obj.body.setUserValue(instances.size);
         obj.body.setCollisionFlags(obj.body.getCollisionFlags() | btCollisionObject.CollisionFlags.CF_CUSTOM_MATERIAL_CALLBACK);
         instances.add(obj);
-        collisionWorld.addCollisionObject(obj.body);
+        collisionWorld.addCollisionObject(obj.body, OBJECT_FLAG, GROUND_FLAG);
     }
 
     @Override
@@ -129,45 +179,43 @@ public class GameLoop extends SubsScreen {
         Gdx.gl.glClearColor(0.3f, 0.3f, 0.3f, 1.f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 
-        for (GameObject obj : instances) {
-            if (obj.moving) {
-                obj.transform.trn(0f, -delta, 0f);
-                obj.body.setWorldTransform(obj.transform);
-            }
-        }
-        collisionWorld.performDiscreteCollisionDetection();
+//        for (GameObject obj : instances) {
+//            if (obj.moving) {
+//                obj.transform.trn(0f, -delta, 0f);
+//                obj.body.setWorldTransform(obj.transform);
+//            }
+//        }
+//        collisionWorld.performDiscreteCollisionDetection();
 
-        if ((spawnTimer -= delta) < 0) {
-            spawn();
-            spawnTimer = 1.5f;
-        }
+//        if ((spawnTimer -= delta) < 0) {
+//            spawn();
+//            spawnTimer = 1.5f;
+//        }
 
         modelBatch.begin(camera);
-        modelBatch.render(instances, environment);
+        visibleCount = 0;
+        for (final GameObject modelInstance : instances) {
+            if (isVisible(camera, modelInstance)) {
+                modelBatch.render(modelInstance, environment);
+                visibleCount++;
+            }
+        }
+        stringBuilder.setLength(0);
+        stringBuilder.append(" FPS: ").append(Gdx.graphics.getFramesPerSecond());
+        stringBuilder.append(" Visible: ").append(visibleCount);
+        label.setText(stringBuilder);
+//        modelBatch.render(instances, environment);
         modelBatch.end();
+        stage.draw();
     }
 
-    boolean checkCollision(btCollisionObject obj0, btCollisionObject obj1) {
-        CollisionObjectWrapper co0 = new CollisionObjectWrapper(obj0);
-        CollisionObjectWrapper co1 = new CollisionObjectWrapper(obj1);
-
-        btCollisionAlgorithm algorithm = dispatcher.findAlgorithm(co0.wrapper, co1.wrapper);
-
-        btDispatcherInfo info = new btDispatcherInfo();
-        btManifoldResult result = new btManifoldResult(co0.wrapper, co1.wrapper);
-
-        algorithm.processCollision(co0.wrapper, co1.wrapper, info, result);
-
-        boolean r = result.getPersistentManifold().getNumContacts() > 0;
-
-        dispatcher.freeCollisionAlgorithm(algorithm.getCPointer());
-        result.dispose();
-        info.dispose();
-        co1.dispose();
-        co0.dispose();
-
-        return r;
+    private boolean isVisible(Camera camera, GameObject instance) {
+        instance.transform.getTranslation(position);
+//        return camera.frustum.pointInFrustum(position);
+        position.add(instance.center);
+        return instance.visible && camera.frustum.boundsInFrustum(position, instance.dimensions);
     }
+
 
     @Override
     public boolean isDone() {
@@ -193,6 +241,11 @@ public class GameLoop extends SubsScreen {
         dispatcher.dispose();
         collisionWorld.dispose();
         broadphase.dispose();
+    }
+
+    @Override
+    public void resize(int width, int height) {
+        stage.getViewport().update(width, height, true);
     }
 
     class MyContactListener extends ContactListener {

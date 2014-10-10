@@ -21,7 +21,7 @@ public class GameObjectFactory implements Disposable {
     }
 
     public GameObject construct() {
-        return new GameObject(model, node, shape);
+        return new GameObject(model, node, shape, true);
     }
 
     @Override
