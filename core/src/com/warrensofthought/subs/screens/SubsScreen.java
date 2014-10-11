@@ -1,12 +1,13 @@
 package com.warrensofthought.subs.screens;
 
+import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.Screen;
 import com.warrensofthought.subs.Subs;
 
 /**
  * Created by till on 08.10.14.
  */
-public abstract class SubsScreen implements Screen {
+public abstract class SubsScreen extends InputAdapter implements Screen {
 
     protected Subs subs;
 

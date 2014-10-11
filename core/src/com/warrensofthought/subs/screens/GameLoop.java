@@ -1,6 +1,7 @@
 package com.warrensofthought.subs.screens;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.InputMultiplexer;
 import com.badlogic.gdx.graphics.*;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g3d.Environment;
@@ -11,8 +12,10 @@ import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.CameraInputController;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
+import com.badlogic.gdx.math.Intersector;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.math.collision.Ray;
 import com.badlogic.gdx.physics.bullet.Bullet;
 import com.badlogic.gdx.physics.bullet.collision.*;
 import com.badlogic.gdx.scenes.scene2d.Stage;
@@ -53,6 +56,9 @@ public class GameLoop extends SubsScreen {
     private StringBuilder stringBuilder;
     private int visibleCount;
     private Vector3 position;
+    private int selected = -1, selecting = -1;
+    private Material selectionMaterial;
+    private Material originalMaterial;
 
     public GameLoop(Subs subs) {
         super(subs);
@@ -116,35 +122,35 @@ public class GameLoop extends SubsScreen {
 
         for (int y = 0; y < 100; y++) {
             for (int x = 0; x < 100; x++) {
-                int maxZ = rand.nextInt(10);
+                int maxZ = rand.nextInt(3);
                 heightmap[y][x] = maxZ;
             }
         }
 
-
+        int total = 0;
+        int culled = 0;
         for (int y = 0; y < 100; y++) {
             for (int x = 0; x < 100; x++) {
-                int maxZ = rand.nextInt(10);
-                heightmap[y][x] = maxZ;
-                for (int z = 0; z < maxZ; z++) {
+                for (int z = 0; z < heightmap[y][x]; z++) {
                     GameObject box = constructors.get("box").construct();
                     box.transform.trn(x, y, z);
                     instances.add(box);
-                    boolean invisZ = z == 0 || z < heightmap[y][x];
+                    boolean invisZ = z == 0 || z < heightmap[y][x] - 1;
 
                     boolean ym1 = y == 0 || heightmap[y - 1][x] != 0;
                     boolean yp1 = y == 99 || heightmap[y + 1][x] != 0;
 
                     boolean xm1 = x == 0 || heightmap[y][x - 1] != 0;
                     boolean xp1 = x == 99 || heightmap[y][x + 1] != 0;
-
+                    total++;
                     if (invisZ && ym1 && yp1 && xm1 && xp1) {
                         box.visible = false;
+                        culled++;
                     }
                 }
             }
         }
-//        instances.add(object);
+        System.out.println(String.format("Total/Culled %s/%s", total, culled));
 
         collisionConfig = new btDefaultCollisionConfiguration();
         dispatcher = new btCollisionDispatcher(collisionConfig);
@@ -152,6 +158,11 @@ public class GameLoop extends SubsScreen {
         contactListener = new MyContactListener();
         collisionWorld = new btCollisionWorld(dispatcher, broadphase, collisionConfig);
         collisionWorld.addCollisionObject(object.body, GROUND_FLAG, ALL_FLAG);
+
+        Gdx.input.setInputProcessor(new InputMultiplexer(this, camController));
+        selectionMaterial = new Material();
+        selectionMaterial.set(ColorAttribute.createDiffuse(Color.ORANGE));
+        originalMaterial = new Material();
     }
 
 
@@ -172,12 +183,20 @@ public class GameLoop extends SubsScreen {
         collisionWorld.addCollisionObject(obj.body, OBJECT_FLAG, GROUND_FLAG);
     }
 
+    private boolean isVisible(Camera camera, GameObject instance) {
+        instance.transform.getTranslation(position);
+        position.add(instance.center);
+        return instance.visible && camera.frustum.boundsInFrustum(position, instance.dimensions);
+    }
+
     @Override
     public void draw(float delta) {
         camController.update();
 
         Gdx.gl.glClearColor(0.3f, 0.3f, 0.3f, 1.f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
+        Gdx.gl.glEnable(GL20.GL_CULL_FACE);
+        Gdx.gl.glCullFace(GL20.GL_BACK);
 
 //        for (GameObject obj : instances) {
 //            if (obj.moving) {
@@ -203,17 +222,11 @@ public class GameLoop extends SubsScreen {
         stringBuilder.setLength(0);
         stringBuilder.append(" FPS: ").append(Gdx.graphics.getFramesPerSecond());
         stringBuilder.append(" Visible: ").append(visibleCount);
+        stringBuilder.append(" Selected: ").append(selected);
         label.setText(stringBuilder);
 //        modelBatch.render(instances, environment);
         modelBatch.end();
         stage.draw();
-    }
-
-    private boolean isVisible(Camera camera, GameObject instance) {
-        instance.transform.getTranslation(position);
-//        return camera.frustum.pointInFrustum(position);
-        position.add(instance.center);
-        return instance.visible && camera.frustum.boundsInFrustum(position, instance.dimensions);
     }
 
 
@@ -246,6 +259,71 @@ public class GameLoop extends SubsScreen {
     @Override
     public void resize(int width, int height) {
         stage.getViewport().update(width, height, true);
+    }
+
+    @Override
+    public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+        selecting = getObject(screenX, screenY);
+        return selecting >= 0;
+    }
+
+    @Override
+    public boolean touchDragged(int screenX, int screenY, int pointer) {
+        return selecting >= 0;
+    }
+
+    @Override
+    public boolean touchUp(int screenX, int screenY, int pointer, int button) {
+        if (selecting >= 0) {
+            if (selecting == getObject(screenX, screenY))
+                setSelected(selecting);
+            selecting = -1;
+            return true;
+        }
+        return false;
+    }
+
+    public void setSelected(int value) {
+        if (selected == value) return;
+        if (selected >= 0) {
+            Material mat = instances.get(selected).materials.get(0);
+            mat.clear();
+            mat.set(originalMaterial);
+        }
+        selected = value;
+        if (selected >= 0) {
+            Material mat = instances.get(selected).materials.get(0);
+            originalMaterial.clear();
+            originalMaterial.set(mat);
+            mat.clear();
+            mat.set(selectionMaterial);
+        }
+    }
+
+    public int getObject(int screenX, int screenY) {
+        Ray ray = camera.getPickRay(screenX, screenY);
+
+        int result = -1;
+        float distance = -1;
+
+        for (int i = 0; i < instances.size; ++i) {
+            final GameObject instance = instances.get(i);
+            if (instance.visible) {
+                instance.transform.getTranslation(position);
+                position.add(instance.center);
+
+                float dist2 = ray.origin.dst2(position);
+                if (distance >= 0f && dist2 > distance)
+                    continue;
+
+                if (Intersector.intersectRaySphere(ray, position, instance.radius, null)) {
+                    result = i;
+                    distance = dist2;
+                }
+            }
+        }
+
+        return result;
     }
 
     class MyContactListener extends ContactListener {

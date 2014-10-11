@@ -17,6 +17,7 @@ public class GameObject extends ModelInstance implements Disposable {
     public final btCollisionObject body;
     public final Vector3 center = new Vector3();
     public final Vector3 dimensions = new Vector3();
+    public final float radius;
     public boolean moving;
     public boolean visible = true;
 
@@ -27,6 +28,7 @@ public class GameObject extends ModelInstance implements Disposable {
         calculateBoundingBox(bounds);
         center.set(bounds.getCenter());
         dimensions.set(bounds.getDimensions());
+        radius = dimensions.len() / 2f;
     }
 
     @Override
